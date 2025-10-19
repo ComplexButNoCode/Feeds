@@ -1,0 +1,786 @@
+"use client";
+import React from "react";
+
+("use client");
+
+// --- RootLayout ---
+
+// --- AccountSelector ---
+function AccountSelector({ profile, onProfileClick, onLogout }) {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+
+  if (!profile) return null;
+
+  return (
+    <div className="relative">
+      <img
+        src={profile.picture}
+        alt="profile"
+        className="w-10 h-10 rounded-full cursor-pointer border-2 border-gray-200 hover:border-blue-500 transition-all"
+        onClick={() => setMenuOpen(!menuOpen)}
+      />
+      {menuOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div className="absolute right-0 mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl w-56 z-50 overflow-hidden">
+            <div className="p-4 bg-gradient-to-br from-blue-50 to-purple-50">
+              <p className="font-semibold text-gray-900 truncate">
+                {profile.name}
+              </p>
+              {profile.email && (
+                <p className="text-xs text-gray-600 truncate mt-1">
+                  {profile.email}
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                onProfileClick?.();
+                setMenuOpen(false);
+              }}
+              className="w-full text-left px-4 py-3 hover:bg-gray-50 text-gray-700 flex items-center gap-3 transition-colors"
+            >
+              <span className="text-lg">👤</span>
+              <span className="font-medium">Perfil</span>
+            </button>
+
+            <button
+              onClick={() => {
+                onLogout?.();
+                setMenuOpen(false);
+              }}
+              className="w-full text-left px-4 py-3 hover:bg-red-50 text-red-600 border-t border-gray-100 flex items-center gap-3 transition-colors"
+            >
+              <span className="text-lg">🚪</span>
+              <span className="font-medium">Sair</span>
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MainComponent() {
+  const { useState, useCallback, useEffect } = React;
+
+  const [activeTab, setActiveTab] = useState("all");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [feedData, setFeedData] = useState([]);
+  const [hudOpen, setHudOpen] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+
+  const config = { facebookAppId: "1164402725471676" };
+
+  const fetchUserData = (accessToken) => {
+    return new Promise((resolve) => {
+      window.FB.api(
+        "/me",
+        {
+          fields: "id,name,email,picture.width(200).height(200)",
+          access_token: accessToken,
+        },
+        (profileRes) => {
+          if (!profileRes || profileRes.error) {
+            console.error("Profile error:", profileRes?.error);
+            return resolve({ profile: null, feed: [] });
+          }
+
+          const profileData = {
+            id: profileRes.id,
+            name: profileRes.name,
+            email: profileRes.email,
+            picture: profileRes.picture?.data?.url,
+          };
+
+          window.FB.api(
+            "/me/feed",
+            {
+              fields:
+                "id,message,created_time,full_picture,permalink_url,type,status_type,attachments{media,subattachments}",
+              access_token: accessToken,
+              limit: 500,
+            },
+            (feedRes) => {
+              if (!feedRes || feedRes.error) {
+                console.error("Feed error:", feedRes?.error);
+                return resolve({ profile: profileData, feed: [] });
+              }
+
+              console.log("Posts encontrados:", feedRes.data?.length || 0);
+
+              const feedItems = (feedRes.data || []).map((post) => ({
+                id: post.id,
+                type: "post",
+                source: "facebook",
+                message: post.message,
+                created_time: post.created_time,
+                image: post.full_picture,
+                url: post.permalink_url,
+                status_type: post.status_type,
+              }));
+
+              resolve({ profile: profileData, feed: feedItems });
+            }
+          );
+        }
+      );
+    });
+  };
+
+  const fetchPhotos = (accessToken) => {
+    return new Promise((resolve) => {
+      window.FB.api(
+        "/me/photos",
+        {
+          fields: "id,images,created_time,link,name",
+          access_token: accessToken,
+          limit: 200,
+        },
+        (res) => {
+          if (!res || res.error) {
+            console.log("Photos error:", res?.error);
+            return resolve([]);
+          }
+
+          const photos = (res.data || []).map((photo) => ({
+            id: photo.id,
+            type: "photo",
+            source: "facebook",
+            message: photo.name || "Foto",
+            created_time: photo.created_time,
+            image: photo.images?.[0]?.source,
+            url: photo.link,
+          }));
+
+          resolve(photos);
+        }
+      );
+    });
+  };
+
+  const fetchVideos = (accessToken) => {
+    return new Promise((resolve) => {
+      window.FB.api(
+        "/me/videos",
+        {
+          fields: "id,description,created_time,source,permalink_url",
+          access_token: accessToken,
+          limit: 200,
+        },
+        (res) => {
+          if (!res || res.error) {
+            console.log("Videos error:", res?.error);
+            return resolve([]);
+          }
+
+          const videos = (res.data || []).map((video) => ({
+            id: video.id,
+            type: "video",
+            source: "facebook",
+            message: video.description,
+            created_time: video.created_time,
+            video: video.source,
+            url: video.permalink_url,
+          }));
+
+          resolve(videos);
+        }
+      );
+    });
+  };
+
+  const fetchInstagram = (accessToken) => {
+    return new Promise((resolve) => {
+      window.FB.api(
+        "/me/accounts",
+        {
+          fields: "id,name,instagram_business_account{id}",
+          access_token: accessToken,
+        },
+        (pagesRes) => {
+          if (!pagesRes || pagesRes.error || !pagesRes.data) {
+            console.log("Pages error:", pagesRes?.error);
+            return resolve([]);
+          }
+
+          const igPromises = pagesRes.data.map((page) => {
+            if (!page.instagram_business_account?.id)
+              return Promise.resolve([]);
+
+            return new Promise((resolveIG) => {
+              window.FB.api(
+                `/${page.instagram_business_account.id}/media`,
+                {
+                  fields: "id,caption,media_type,media_url,timestamp,permalink",
+                  access_token: accessToken,
+                  limit: 100,
+                },
+                (igRes) => {
+                  if (!igRes || igRes.error || !igRes.data) {
+                    return resolveIG([]);
+                  }
+
+                  const items = igRes.data.map((it) => ({
+                    id: it.id,
+                    type: (it.media_type || "IMAGE").toLowerCase(),
+                    source: "instagram",
+                    message: it.caption,
+                    created_time: it.timestamp,
+                    image: it.media_type === "IMAGE" ? it.media_url : null,
+                    video: it.media_type === "VIDEO" ? it.media_url : null,
+                    url: it.permalink,
+                    pageName: page.name,
+                  }));
+
+                  resolveIG(items);
+                }
+              );
+            });
+          });
+
+          Promise.all(igPromises).then((results) => {
+            resolve(results.flat());
+          });
+        }
+      );
+    });
+  };
+
+  const fetchCollectiveFeed = async (accessToken) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      console.log("🚀 Iniciando busca de dados...");
+
+      const [userData, photos, videos, instagram] = await Promise.all([
+        fetchUserData(accessToken),
+        fetchPhotos(accessToken),
+        fetchVideos(accessToken),
+        fetchInstagram(accessToken),
+      ]);
+
+      console.log("📊 Resultados:");
+      console.log("- Posts:", userData.feed.length);
+      console.log("- Fotos:", photos.length);
+      console.log("- Vídeos:", videos.length);
+      console.log("- Instagram:", instagram.length);
+
+      let combined = [...userData.feed, ...photos, ...videos, ...instagram];
+
+      combined.sort(
+        (a, b) => new Date(b.created_time) - new Date(a.created_time)
+      );
+
+      console.log("🎉 Total de itens:", combined.length);
+
+      return {
+        profile: userData.profile,
+        feed: combined,
+      };
+    } catch (err) {
+      console.error("Erro no fetchCollectiveFeed:", err);
+      setError("Erro ao carregar posts: " + err.message);
+      return { profile: null, feed: [] };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFacebookLogin = useCallback(() => {
+    if (window.FB) {
+      setError(null);
+      setIsLoading(true);
+
+      window.FB.login(
+        (response) => {
+          if (response.status === "connected") {
+            const accessToken = response.authResponse.accessToken;
+
+            fetchCollectiveFeed(accessToken)
+              .then(({ profile, feed }) => {
+                setProfile(profile);
+                setFeedData(feed);
+                setConnected(true);
+                console.log("✅ Login e carga concluídos!");
+              })
+              .catch((err) => {
+                setError("Erro ao carregar feed: " + err.message);
+                setIsLoading(false);
+              });
+          } else {
+            setError("Falha ao conectar com Facebook.");
+            setIsLoading(false);
+          }
+        },
+        {
+          scope: "public_profile,user_posts,user_videos,user_photos",
+          return_scopes: true,
+        }
+      );
+    }
+  }, []);
+
+  const handleLogout = () => {
+    if (window.FB) {
+      window.FB.logout(() => {
+        setConnected(false);
+        setProfile(null);
+        setFeedData([]);
+        setShowProfile(false);
+      });
+    }
+  };
+
+  const handleProfileClick = () => {
+    setShowProfile(!showProfile);
+  };
+
+  useEffect(() => {
+    const initFacebook = () => {
+      if (window.FB) {
+        window.FB.init({
+          appId: config.facebookAppId,
+          cookie: true,
+          xfbml: true,
+          version: "v20.0",
+        });
+
+        window.FB.getLoginStatus((response) => {
+          if (response.status === "connected") {
+            const accessToken = response.authResponse.accessToken;
+            console.log("Já conectado, buscando dados...");
+            fetchCollectiveFeed(accessToken).then(({ profile, feed }) => {
+              setProfile(profile);
+              setFeedData(feed);
+              setConnected(true);
+            });
+          }
+        });
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      if (!window.fbAsyncInit) {
+        window.fbAsyncInit = initFacebook;
+      }
+
+      if (!document.getElementById("facebook-jssdk")) {
+        const script = document.createElement("script");
+        script.id = "facebook-jssdk";
+        script.src = "https://connect.facebook.net/pt_BR/sdk.js";
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+          console.log("Facebook SDK carregado");
+          initFacebook();
+        };
+        document.head.appendChild(script);
+      } else if (window.FB) {
+        initFacebook();
+      }
+    }
+  }, []);
+
+  const filteredFeed =
+    activeTab === "all"
+      ? feedData
+      : feedData.filter((item) => item.source === activeTab);
+
+  const moodboardStyle = `
+    .moodboard {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      grid-auto-rows: 160px;
+      gap: 12px;
+      padding: 1rem;
+    }
+    
+    .moodboard-item {
+      position: relative;
+      overflow: hidden;
+      border-radius: 16px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    
+    .moodboard-item:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+    
+    .moodboard-item img,
+    .moodboard-item video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    
+    .span-two {
+      grid-row: span 2;
+      grid-column: span 2;
+    }
+    
+    .text-post {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      text-align: center;
+      height: 100%;
+      font-size: 0.875rem;
+      line-height: 1.4;
+    }
+    
+    @media (max-width: 768px) {
+      .moodboard {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        grid-auto-rows: 110px;
+        gap: 8px;
+        padding: 0.75rem;
+      }
+      
+      .text-post {
+        padding: 1rem;
+        font-size: 0.75rem;
+      }
+    }
+  `;
+
+  if (!connected) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4">
+        <style jsx global>
+          {moodboardStyle}
+        </style>
+
+        <div className="text-center max-w-md">
+          <img
+            src="https://ucarecdn.com/705b736d-fdd0-4f8b-91c0-549e4c692ae7/-/format/auto/"
+            alt="Feeds Logo"
+            className="w-40 md:w-48 mb-8 mx-auto"
+          />
+
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3">
+            Bem-vindo ao Feeds
+          </h1>
+
+          <p className="text-gray-600 mb-8 text-sm md:text-base">
+            Todos os seus posts em um só lugar
+          </p>
+
+          <button
+            onClick={handleFacebookLogin}
+            disabled={isLoading}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium text-base w-full md:w-auto flex items-center justify-center gap-3 mx-auto"
+          >
+            {isLoading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Conectando...</span>
+              </>
+            ) : (
+              <>
+                <i className="fab fa-facebook-f text-lg"></i>
+                <span>Conectar com Facebook</span>
+              </>
+            )}
+          </button>
+
+          {error && (
+            <div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-sm">
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans flex flex-col">
+      <style jsx global>
+        {moodboardStyle}
+      </style>
+
+      <div className="bg-white py-4 px-4 md:px-6 flex items-center justify-between border-b border-gray-100 fixed top-0 w-full z-50 shadow-sm">
+        <img
+          src="https://ucarecdn.com/705b736d-fdd0-4f8b-91c0-549e4c692ae7/-/format/auto/"
+          alt="Feeds Logo"
+          className="h-7 md:h-8"
+        />
+
+        <div className="flex items-center gap-2 md:gap-3">
+          <button
+            onClick={() => setActiveTab("all")}
+            className={`py-2 px-4 md:px-5 rounded-full text-sm font-medium transition-all ${
+              activeTab === "all"
+                ? "bg-blue-600 text-white shadow-md"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            Todas
+          </button>
+
+          <button
+            onClick={() => setHudOpen(!hudOpen)}
+            className="relative py-2 px-3 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center transition-all"
+            title="Selecionar rede"
+          >
+            <span className="flex -space-x-2 items-center">
+              <i className="fab fa-facebook-f w-5 h-5 text-blue-600 bg-white rounded-full p-1 border-2 border-white shadow-sm"></i>
+              <i className="fab fa-instagram w-5 h-5 text-pink-600 bg-white rounded-full p-1 border-2 border-white shadow-sm"></i>
+            </span>
+          </button>
+
+          <AccountSelector
+            profile={profile}
+            onProfileClick={handleProfileClick}
+            onLogout={handleLogout}
+          />
+        </div>
+      </div>
+
+      {hudOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black bg-opacity-20 z-40"
+            onClick={() => setHudOpen(false)}
+          />
+          <div className="fixed top-20 left-1/2 transform -translate-x-1/2 flex flex-col md:flex-row gap-3 bg-white p-4 md:p-5 rounded-2xl shadow-2xl z-50 w-11/12 md:w-auto">
+            <button
+              onClick={() => {
+                setActiveTab("facebook");
+                setHudOpen(false);
+              }}
+              className={`flex items-center justify-center gap-3 px-5 py-3 rounded-xl font-medium transition-all ${
+                activeTab === "facebook"
+                  ? "bg-blue-600 text-white shadow-md"
+                  : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+              }`}
+            >
+              <i className="fab fa-facebook-f text-lg"></i>
+              <span>Facebook</span>
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("instagram");
+                setHudOpen(false);
+              }}
+              className={`flex items-center justify-center gap-3 px-5 py-3 rounded-xl font-medium transition-all ${
+                activeTab === "instagram"
+                  ? "bg-pink-600 text-white shadow-md"
+                  : "bg-pink-50 text-pink-700 hover:bg-pink-100"
+              }`}
+            >
+              <i className="fab fa-instagram text-lg"></i>
+              <span>Instagram</span>
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("all");
+                setHudOpen(false);
+              }}
+              className="flex items-center justify-center gap-3 bg-gray-100 text-gray-700 hover:bg-gray-200 px-5 py-3 rounded-xl font-medium transition-all"
+            >
+              <span>📂</span>
+              <span>Todas</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      <div
+        className={`flex-grow ${
+          showProfile ? "w-full" : "max-w-3xl mx-auto w-full"
+        }`}
+        style={{ marginTop: "80px", paddingBottom: "2rem" }}
+      >
+        {isLoading && (
+          <div className="flex justify-center items-center p-12 flex-col gap-4">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-gray-600 font-medium">
+              Carregando seus posts...
+            </span>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-5 py-4 rounded-2xl mx-4 mb-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <span className="text-xl">⚠️</span>
+              <span className="text-sm">{error}</span>
+            </div>
+          </div>
+        )}
+
+        {!isLoading && connected && (
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 mx-4 mb-4 shadow-sm">
+            <p className="text-blue-800 text-sm font-medium flex items-center gap-2">
+              <span className="text-lg">✅</span>
+              <span>
+                <strong>{filteredFeed.length} posts</strong> carregados
+              </span>
+            </p>
+          </div>
+        )}
+
+        {showProfile ? (
+          <div className="moodboard">
+            {filteredFeed.map((item, idx) => (
+              <a
+                key={item.id}
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`moodboard-item ${idx % 7 === 0 ? "span-two" : ""}`}
+              >
+                {item.image ? (
+                  <img
+                    src={item.image}
+                    alt={item.message || "Post"}
+                    loading="lazy"
+                  />
+                ) : item.video ? (
+                  <div className="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
+                    <span className="text-white text-2xl">🎥</span>
+                  </div>
+                ) : (
+                  <div className="text-post">
+                    <div className="text-xs md:text-sm font-medium">
+                      {item.message ? (
+                        <span>{item.message.substring(0, 100)}...</span>
+                      ) : (
+                        <span>📝 Post</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2 md:p-3">
+                  <span className="text-white text-xs font-medium flex items-center gap-1">
+                    {item.source === "instagram" ? (
+                      <>
+                        <i className="fab fa-instagram"></i>
+                        <span>Instagram</span>
+                      </>
+                    ) : (
+                      <>
+                        <i className="fab fa-facebook-f"></i>
+                        <span>Facebook</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="px-4 space-y-4">
+            {filteredFeed.length > 0
+              ? filteredFeed.map((item) => (
+                  <div
+                    key={item.id}
+                    className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs md:text-sm text-gray-500">
+                        {new Date(item.created_time).toLocaleString("pt-BR", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          item.source === "facebook"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-pink-100 text-pink-700"
+                        }`}
+                      >
+                        {item.source === "facebook" ? (
+                          <span className="flex items-center gap-1">
+                            <i className="fab fa-facebook-f"></i>
+                            Facebook
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <i className="fab fa-instagram"></i>
+                            Instagram
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    {item.message && (
+                      <p className="mb-4 text-gray-800 whitespace-pre-wrap text-sm md:text-base leading-relaxed">
+                        {item.message}
+                      </p>
+                    )}
+
+                    {item.image && (
+                      <img
+                        src={item.image}
+                        alt="post"
+                        className="w-full rounded-xl mb-4 max-h-96 object-cover"
+                        loading="lazy"
+                      />
+                    )}
+
+                    {item.video && (
+                      <video
+                        src={item.video}
+                        controls
+                        className="w-full rounded-xl mb-4 max-h-96"
+                      />
+                    )}
+
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium hover:underline transition-colors"
+                    >
+                      {item.source === "facebook" ? (
+                        <>
+                          <i className="fab fa-facebook-f"></i>
+                          <span>Ver no Facebook</span>
+                        </>
+                      ) : (
+                        <>
+                          <i className="fab fa-instagram"></i>
+                          <span>Ver no Instagram</span>
+                        </>
+                      )}
+                      <i className="fas fa-external-link-alt text-xs"></i>
+                    </a>
+                  </div>
+                ))
+              : !isLoading && (
+                  <div className="text-center py-16">
+                    <div className="text-6xl mb-4">📭</div>
+                    <p className="text-gray-500 font-medium">
+                      Nenhum conteúdo encontrado
+                    </p>
+                  </div>
+                )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default MainComponent;
